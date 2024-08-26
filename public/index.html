@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>5x5 Chess Game</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+        }
+        #setup {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        #setup input {
+            margin: 5px;
+            padding: 5px;
+            font-size: 16px;
+        }
+        #setup button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        #info {
+            margin-bottom: 20px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        .board {
+            display: grid;
+            grid-template-columns: repeat(5, 60px);
+            grid-template-rows: repeat(5, 60px);
+            gap: 1px;
+            background-color: #333;
+            border-radius: 10px;
+        }
+        .cell {
+            width: 60px;
+            height: 60px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #ddd;
+            font-size: 18px;
+            font-weight: bold;
+            transition: background-color 0.3s;
+            color: #000;
+        }
+        .cell.A {
+            color: #1a73e8; 
+        }
+        .cell.B {
+            color: #e91e63; 
+        }
+        .cell.selected {
+            background-color: #ffa;
+        }
+        .cell.highlight {
+            background-color: #cfc;
+        }
+        .cell.boundary {
+            border: 2px solid #333;
+        }
+    </style>
+</head>
+<body>
+    <div id="setup">
+        <h2>Setup your pieces (P, H1, H2)</h2>
+        <input type="text" id="pieceInput" placeholder="Enter 5 pieces (e.g., P,H1,H2,P,P)">
+        <button onclick="setupPieces()">Submit</button>
+    </div>
+    <div id="info">Waiting for player setup...</div>
+    <div class="board"></div>
+
+    <script>
+        const socket = new WebSocket('ws://localhost:8080');
+        const boardElement = document.querySelector('.board');
+        const setupElement = document.getElementById('setup');
+        const infoElement = document.getElementById('info');
+        let selectedCell = null;
+        let gameState = {};
+        let player = null;
+
+
+        //WHEN SOCKET IS CONNECTED: 
+        socket.onmessage = function(event) {
+            const message = JSON.parse(event.data);
+
+            if (message.type === 'init') {
+                player = message.player;
+                alert(`You are Player ${player}`);
+            } else if (message.type === 'gameState') {
+                gameState = message.gameState;
+                renderBoard();
+                setupElement.style.display = 'none';
+                boardElement.style.display = 'grid';
+                updateInfo();
+            } else if (message.type === 'error') {
+                alert(message.message);
+            } else if (message.type === 'gameOver') {
+                alert(message.winner === 'Draw' ? 'The game is a draw!' : `Player ${message.winner} wins!`);
+                location.reload(); 
+            }
+        };
+
+
+        function setupPieces() {
+            const input = document.getElementById('pieceInput').value.trim();
+            const pieces = input.split(',');
+
+            if (pieces.length !== 5 || !pieces.every(p => ['P', 'H1', 'H2'].includes(p))) {
+                alert('Please enter exactly 5 pieces using P, H1, H2');
+                return;
+            }
+
+            socket.send(JSON.stringify({ type: 'setup', pieces }));
+        }
+
+
+        //GENERATES THE BOARD 
+        function renderBoard() {
+            boardElement.innerHTML = '';
+            gameState.board.forEach((row, rowIndex) => {
+                row.forEach((cell, colIndex) => {
+                    const cellElement = document.createElement('div');
+                    cellElement.className = 'cell';
+                    if (cell) {
+                        const [player, piece] = cell.split('-');
+                        cellElement.textContent = `${player}-${piece}`;
+                        cellElement.classList.add(player);
+                    }
+                    cellElement.addEventListener('click', () => onCellClick(rowIndex, colIndex));
+                    boardElement.appendChild(cellElement);
+                });
+            });
+            addBorders();
+        }
+
+
+        //CLEAN UI SETUP 
+
+        function addBorders() {
+            const cells = document.querySelectorAll('.cell');
+            cells.forEach((cell, index) => {
+                if (index % 5 === 0) cell.classList.add('boundary');
+                if (index < 5) cell.classList.add('boundary');
+                if (index >= 20) cell.classList.add('boundary');
+                if ((index + 1) % 5 === 0) cell.classList.add('boundary');
+            });
+        }
+
+
+        function onCellClick(rowIndex, colIndex) {
+            if (selectedCell) {
+                const [fromX, fromY] = selectedCell;
+                const piece = gameState.board[fromX][fromY].split('-')[1];
+                const direction = getMoveDirection(fromX, fromY, rowIndex, colIndex, piece);
+                if (direction) {
+                    socket.send(JSON.stringify({ type: 'move', move: `${piece}:${direction}` }));
+                    selectedCell = null;
+                }
+            } else if (gameState.board[rowIndex][colIndex] && gameState.board[rowIndex][colIndex][0] === player) {
+                selectedCell = [rowIndex, colIndex];
+                highlightSelectedCell(rowIndex, colIndex);
+            }
+        }
+
+        function highlightSelectedCell(rowIndex, colIndex) {
+            const cells = document.querySelectorAll('.cell');
+            cells.forEach((cell, index) => {
+                const [r, c] = [Math.floor(index / 5), index % 5];
+                cell.classList.toggle('selected', r === rowIndex && c === colIndex);
+                if (r !== rowIndex || c !== colIndex) {
+                    cell.classList.remove('highlight');
+                }
+            });
+            highlightAvailableMoves(rowIndex, colIndex);
+        }
+
+        //ADD HIGHLIGHT SUGGESTIONS LATER 
+        function highlightAvailableMoves(rowIndex, colIndex) {
+            const piece = gameState.board[rowIndex][colIndex].split('-')[1];
+            const moves = getPossibleMoves(rowIndex, colIndex, piece);
+            moves.forEach(([r, c]) => {
+                if (r >= 0 && r < 5 && c >= 0 && c < 5) {
+                    const index = r * 5 + c;
+                    const cell = document.querySelectorAll('.cell')[index];
+                    cell.classList.add('highlight');
+                }
+            });
+        }
+
+        function getPossibleMoves(rowIndex, colIndex, piece) {
+
+            const moves = [];
+            if (piece === 'P') {
+                moves.push([rowIndex - 1, colIndex], [rowIndex + 1, colIndex], [rowIndex, colIndex - 1], [rowIndex, colIndex + 1]);
+            } else if (piece === 'H1') {
+                moves.push([rowIndex - 2, colIndex], [rowIndex + 2, colIndex], [rowIndex, colIndex - 2], [rowIndex, colIndex + 2]);
+            } else if (piece === 'H2') {
+                moves.push([rowIndex - 2, colIndex - 2], [rowIndex - 2, colIndex + 2], [rowIndex + 2, colIndex - 2], [rowIndex + 2, colIndex + 2]);
+            }
+            return moves;
+        }
+
+        
+        function getMoveDirection(fromX, fromY, toX, toY, piece) {
+            const dx = toX - fromX;
+            const dy = toY - fromY;
+            switch (piece) {
+                case 'P':
+                case 'H1':
+                    if (dx === 0 && dy === -1) return 'L';
+                    if (dx === 0 && dy === 1) return 'R';
+                    if (dy === 0 && dx === 1) return 'F';
+                    if (dy === 0 && dx === -1) return 'B';
+                    break;
+                case 'H2':
+                    if (dx === 2 && dy === -2) return 'FL';
+                    if (dx === 2 && dy === 2) return 'FR';
+                    if (dx === -2 && dy === -2) return 'BL';
+                    if (dx === -2 && dy === 2) return 'BR';
+                    break;
+            }
+            return null;
+        }
+
+        function updateInfo() {
+            infoElement.textContent = `Current Turn: Player ${gameState.currentPlayer}`;
+        }
+    </script>
+</body>
+</html>
