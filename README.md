@@ -1,6 +1,6 @@
 # BhaygeshaKhairnar_21BBS0220
 
-# Turn-Based Chess-like Game
+# Live Chess Fun Sized 5x5
 
 This repository contains a complete implementation of a turn-based chess-like game using WebSocket for real-time communication and a web-based user interface. The game features a 5x5 grid board, three types of characters (`Pawn`, `Hero1`, `Hero2`), and supports two-player gameplay.
 
@@ -20,6 +20,8 @@ This repository contains a complete implementation of a turn-based chess-like ga
 - **Node.js**: Make sure Node.js is installed on your machine. You can download it from [nodejs.org](https://nodejs.org/).
 
 ### Cloning the Repository
+
+Make sure the current directory is the desired one and stays followed throughout. 
 
 1. **Clone the repository**:
    ```bash
